@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Web Soccer Game (Full Version)</title>
+  <style>
+    body {
+      margin: 0;
+      background: #222;
+      color: white;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      background: green;
+      margin: 0 auto;
+    }
+    #controls {
+      text-align: center;
+      margin-top: 10px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="800" height="500"></canvas>
+  <div id="controls">
+    <button onclick="setMode('offline')">Offline Mode</button>
+    <button onclick="setMode('online')">Online Mode</button>
+  </div>
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+
+    const playerRadius = 15;
+    const ballRadius = 10;
+    const goalWidth = 10;
+    const goalHeight = 150;
+
+    let red = { x: 150, y: HEIGHT/2, color: "red", up: false, down: false, left: false, right: false, score: 0 };
+    let blue = { x: WIDTH - 150, y: HEIGHT/2, color: "blue", up: false, down: false, left: false, right: false, score: 0 };
+    let redGK = { x: 40, y: HEIGHT/2, color: "darkred" };
+    let blueGK = { x: WIDTH - 40, y: HEIGHT/2, color: "darkblue" };
+
+    let ball = { x: WIDTH/2, y: HEIGHT/2, vx: 0, vy: 0, lastShooter: null };
+
+    let mode = 'offline';
+    let shotStats = { red: 0, blue: 0 };
+    let possession = { red: 0, blue: 0 };
+    let lastPossession = 'none';
+
+    let startTime = Date.now();
+    const matchDuration = 3 * 60 * 1000; // 3 minutes
+
+    const speed = 3;
+    const ballFriction = 0.98;
+
+    function setMode(m) {
+      mode = m;
+      alert("Switched to " + m + " mode");
+    }
+
+    function drawCircle(x, y, r, color) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    function drawField() {
+      ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 4;
+      ctx.strokeRect(0, 0, WIDTH, HEIGHT);
+      ctx.beginPath();
+      ctx.moveTo(WIDTH/2, 0);
+      ctx.lineTo(WIDTH/2, HEIGHT);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(WIDTH/2, HEIGHT/2, 70, 0, 2*Math.PI);
+      ctx.stroke();
+      ctx.fillStyle = "yellow";
+      ctx.fillRect(0, HEIGHT/2 - goalHeight/2, goalWidth, goalHeight);
+      ctx.fillRect(WIDTH - goalWidth, HEIGHT/2 - goalHeight/2, goalWidth, goalHeight);
+    }
+
+    function movePlayer(player) {
+      if (player.up) player.y -= speed;
+      if (player.down) player.y += speed;
+      if (player.left) player.x -= speed;
+      if (player.right) player.x += speed;
+      player.x = Math.max(playerRadius, Math.min(WIDTH - playerRadius, player.x));
+      player.y = Math.max(playerRadius, Math.min(HEIGHT - playerRadius, player.y));
+    }
+
+    function moveGoalkeeper(keeper, targetX, ball) {
+      keeper.x = targetX;
+      let dy = ball.y - keeper.y;
+      if (Math.abs(dy) > 3) keeper.y += dy > 0 ? 1 : -1;
+    }
+
+    function updateBall() {
+      ball.x += ball.vx;
+      ball.y += ball.vy;
+      ball.vx *= ballFriction;
+      ball.vy *= ballFriction;
+
+      if (ball.x < 0 || ball.x > WIDTH || ball.y < 0 || ball.y > HEIGHT) {
+        resetPositions();
+      }
+
+      // check possession
+      let redDist = Math.hypot(red.x - ball.x, red.y - ball.y);
+      let blueDist = Math.hypot(blue.x - ball.x, blue.y - ball.y);
+      if (redDist < blueDist) possession.red += 1;
+      else possession.blue += 1;
+
+      // goalkeeper block
+      [redGK, blueGK].forEach(keeper => {
+        let dist = Math.hypot(ball.x - keeper.x, ball.y - keeper.y);
+        if (dist < playerRadius + ballRadius) {
+          let angle = Math.atan2(ball.y - keeper.y, ball.x - keeper.x);
+          let speed = Math.hypot(ball.vx, ball.vy);
+          ball.vx = Math.cos(angle) * speed * 0.7;
+          ball.vy = Math.sin(angle) * speed * 0.7;
+        }
+      });
+
+      // goal check
+      if (ball.x - ballRadius <= goalWidth && ball.y >= HEIGHT/2 - goalHeight/2 && ball.y <= HEIGHT/2 + goalHeight/2) {
+        blue.score++;
+        if (ball.lastShooter === 'red') shotStats.red++;
+        resetPositions();
+      }
+      if (ball.x + ballRadius >= WIDTH - goalWidth && ball.y >= HEIGHT/2 - goalHeight/2 && ball.y <= HEIGHT/2 + goalHeight/2) {
+        red.score++;
+        if (ball.lastShooter === 'blue') shotStats.blue++;
+        resetPositions();
+      }
+    }
+
+    function kickBall(player) {
+      let dx = ball.x - player.x;
+      let dy = ball.y - player.y;
+      let dist = Math.hypot(dx, dy);
+      if (dist < playerRadius + ballRadius) {
+        let angle = Math.atan2(dy, dx);
+        ball.vx = Math.cos(angle) * 5;
+        ball.vy = Math.sin(angle) * 5;
+        ball.lastShooter = player.color;
+      }
+    }
+
+    function resetPositions() {
+      red.x = 150; red.y = HEIGHT/2;
+      blue.x = WIDTH - 150; blue.y = HEIGHT/2;
+      ball.x = WIDTH/2; ball.y = HEIGHT/2;
+      ball.vx = 0; ball.vy = 0;
+    }
+
+    function gameLoop() {
+      drawField();
+
+      if (mode === 'offline') {
+        movePlayer(red);
+        movePlayer(blue);
+      }
+
+      moveGoalkeeper(redGK, 40, ball);
+      moveGoalkeeper(blueGK, WIDTH - 40, ball);
+
+      updateBall();
+      kickBall(red);
+      kickBall(blue);
+
+      drawCircle(red.x, red.y, playerRadius, red.color);
+      drawCircle(blue.x, blue.y, playerRadius, blue.color);
+      drawCircle(redGK.x, redGK.y, playerRadius, redGK.color);
+      drawCircle(blueGK.x, blueGK.y, playerRadius, blueGK.color);
+      drawCircle(ball.x, ball.y, ballRadius, "white");
+
+      // UI
+      ctx.fillStyle = "white";
+      ctx.font = "16px Arial";
+      let mins = Math.floor((Date.now() - startTime)/60000);
+      let secs = Math.floor((Date.now() - startTime)/1000)%60;
+      ctx.fillText(`Time: ${mins}:${secs.toString().padStart(2, '0')}`, WIDTH/2 - 40, 20);
+      ctx.fillText(`Score - Red: ${red.score}  Blue: ${blue.score}`, WIDTH/2 - 80, 40);
+      ctx.fillText(`Shots - Red: ${shotStats.red}  Blue: ${shotStats.blue}`, WIDTH/2 - 80, 60);
+      let totalPoss = possession.red + possession.blue;
+      if (totalPoss > 0) {
+        let redPoss = Math.round((possession.red / totalPoss) * 100);
+        ctx.fillText(`Possession - Red: ${redPoss}% Blue: ${100-redPoss}%`, WIDTH/2 - 100, 80);
+      }
+
+      if (Date.now() - startTime > matchDuration) {
+        ctx.fillText("MATCH OVER", WIDTH/2 - 50, HEIGHT/2);
+        return;
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", e => {
+      if (e.key === "w") red.up = true;
+      if (e.key === "s") red.down = true;
+      if (e.key === "a") red.left = true;
+      if (e.key === "d") red.right = true;
+      if (e.key === "ArrowUp") blue.up = true;
+      if (e.key === "ArrowDown") blue.down = true;
+      if (e.key === "ArrowLeft") blue.left = true;
+      if (e.key === "ArrowRight") blue.right = true;
+    });
+
+    document.addEventListener("keyup", e => {
+      if (e.key === "w") red.up = false;
+      if (e.key === "s") red.down = false;
+      if (e.key === "a") red.left = false;
+      if (e.key === "d") red.right = false;
+      if (e.key === "ArrowUp") blue.up = false;
+      if (e.key === "ArrowDown") blue.down = false;
+      if (e.key === "ArrowLeft") blue.left = false;
+      if (e.key === "ArrowRight") blue.right = false;
+    });
+
+    gameLoop();
+  </script>
+</body>
+</html>
